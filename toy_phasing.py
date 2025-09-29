@@ -4,6 +4,7 @@ from os import path as op
 from pathlib import Path
 import numpy as np
 from opencv_plugin import CV_Plugin,get_phase_and_intensity
+from images import load,save_complex,save_hsl
 
 
 #  ###################################################
@@ -208,20 +209,21 @@ def define_file_paths(image_path,mask_path):
         os.makedirs(output_folder.as_posix())
         os.makedirs(fft_images.as_posix())
     
-    output_path_fft_image = (fft_images / f'fft.png').resolve().as_posix()
-    output_path_intensity_image = (fft_images / f'fft_intensity.png').resolve().as_posix()
-    output_path_phase_image = (fft_images / f'fft_phase.png').resolve().as_posix()
-    output_path_intensity_inverse_image = (fft_images / f'sqrt_of_intensity_inverse.png').resolve().as_posix()
-    output_path_autocorrelation_image = (fft_images /  f'autocorrelation.png').resolve().as_posix()
-    output_path_phase_inverse_image = (fft_images / f'phase_inverse.png').resolve().as_posix()
-    output_path_inverse_image = (fft_images / f'full_inverse.png').resolve().as_posix()
+    output_path_fft_image = (fft_images / f'fft.tiff').resolve().as_posix()
+    output_path_intensity_image = (fft_images / f'fft_intensity.tiff').resolve().as_posix()
+    output_path_phase_image = (fft_images / f'fft_phase.tiff').resolve().as_posix()
+    output_path_intensity_inverse_image = (fft_images / f'sqrt_of_intensity_inverse.tiff').resolve().as_posix()
+    output_path_autocorrelation_image = (fft_images /  f'autocorrelation.tiff').resolve().as_posix()
+    output_path_phase_inverse_image = (fft_images / f'phase_inverse.tiff').resolve().as_posix()
+    output_path_inverse_image = (fft_images / f'full_inverse.tiff').resolve().as_posix()
 
-    initial_density_path = ( output_folder / f'initial_density.png').resolve().as_posix()
-    initial_mask_path = ( output_folder / f'initial_mask.png').resolve().as_posix()
-    reconstruction_path = ( output_folder/ f'reconstructed_density.png').resolve().as_posix()
+    initial_density_path = ( output_folder / f'initial_density.tiff').resolve().as_posix()
+    initial_mask_path = ( output_folder / f'initial_mask.tiff').resolve().as_posix()
+    reconstruction_path = ( output_folder/ f'reconstructed_density.tiff').resolve().as_posix()
+    reconstructed_intensity_path = ( output_folder/ f'reconstructed_intensity.tiff').resolve().as_posix()
     reconstruction_video_path = (output_folder /  f'reconstruction_video_density.avi').resolve().as_posix()
     reconstruction_video_path_color = ( output_folder / f'reconstruction_video_density_colored.avi').resolve().as_posix()
-    reconstructed_mask_path = (output_folder / 'reconstructed_mask.png').resolve().as_posix()
+    reconstructed_mask_path = (output_folder / 'reconstructed_mask.tiff').resolve().as_posix()
     
     return locals()
 def save_images(phases,intensity,inverse_array,intensity_inverse_array,phases_inverse_array,autocorrelation):
@@ -229,46 +231,59 @@ def save_images(phases,intensity,inverse_array,intensity_inverse_array,phases_in
 
     ## Fourier transformed Image
     # Save Fouriertransform image 
-    CV_Plugin.save_complex(output_path_fft_image,fft_array,log_scale=True)
-    CV_Plugin.save_complex(output_path_intensity_image,intensity,saturation=0,log_scale=True)
-    CV_Plugin.save_hls(output_path_phase_image,phases,intensity=0.5,saturation=1)
+    save_complex(output_path_fft_image,fft_array,log_scale=True)
+    save_complex(output_path_intensity_image,intensity,saturation=0,log_scale=True)
+    save_hsl(output_path_phase_image,phases,intensity=0.5,saturation=1)
     
     
     ## Inverses of fourier transformed Image
     # Save inverse constructed from square root of intensity only 
-    CV_Plugin.save_complex(output_path_intensity_inverse_image,intensity_inverse_array,saturation=0,log_scale=False)
+    save_complex(output_path_intensity_inverse_image,intensity_inverse_array,saturation=0,log_scale=False)
     # Save inverse constructed from of intensity only (This is the autocorrelation)
-    CV_Plugin.save_complex(output_path_autocorrelation_image,autocorrelation,saturation=0,log_scale=False)
+    save_complex(output_path_autocorrelation_image,autocorrelation,saturation=0,log_scale=False)
     # Save inverse constructed from phases only 
-    CV_Plugin.save_complex(output_path_phase_inverse_image,phases_inverse_array,saturation=0,log_scale=True)
+    save_complex(output_path_phase_inverse_image,phases_inverse_array,saturation=0,log_scale=True)
     # Save inverse of complete fourier transform
-    CV_Plugin.save_complex(output_path_inverse_image,inverse_array,saturation=0,log_scale=False)
+    save_complex(output_path_inverse_image,inverse_array,saturation=0,log_scale=False)
     
 def density_to_fft_intensity(density):
     ft_density = np.fft.fft2(density)
     intensity = ft_density*ft_density.conj()
     return intensity
 
-def fft_example():
-    # load image  | Lade Bild datei
-    bw_array = CV_Plugin.load(image_path,as_grayscale=True)
-    # Fouriertransform Image 
-    fft_array = np.fft.fft2(bw_array)
-    # Phases and Intensity of fourier transformed image 
-    phases, intensity = get_phase_and_intensity(fft_array)
-    # inverse transform of intensities only
-    intensity_inverse_array = np.abs(np.fft.ifft2(np.sqrt(intensity.real)))
-    autocorrelation = np.abs(np.fft.ifft2(intensity.real))
-    # inverse transform of phases only 
-    phases_inverse_array = np.fft.ifft2(np.exp(1.j*phases))
-    # inverse transform of complete data 
-    inverse_array = np.fft.ifft2(fft_array)
-    nr = len(bw_array)//2
-    phases = np.roll(np.roll(phases,nr,axis =0),nr,axis = 1)
-    intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
-    autocorrelation = np.roll(np.roll(autocorrelation,nr,axis =0),nr,axis = 1)
-    intensity_inverse_array = np.roll(np.roll(intensity_inverse_array,nr,axis =0),nr,axis = 1)
-    save_images(phases,intensity,inverse_array,intensity_inverse_array,phases_inverse_array,autocorrelation)    
+def fft_example(input_is_intensity=False):
+    if input_is_intensity:
+        intensity = (load(image_path,as_grayscale=True))
+        intensity/=intensity.max()
+        print(intensity.dtype,intensity.max())
+        nr = len(intensity)//2
+        intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
+        autocorrelation = np.abs(np.fft.ifft2(intensity.real))
+
+        intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
+        autocorrelation = np.roll(np.roll(autocorrelation,nr,axis =0),nr,axis = 1)
+        save_complex(output_path_intensity_image,intensity,saturation=0,log_scale=False)
+        save_complex(output_path_autocorrelation_image,autocorrelation,saturation=0,log_scale=False)
+    else:
+        # load image  | Lade Bild datei
+        bw_array = load(image_path,as_grayscale=True)
+        # Fouriertransform Image 
+        fft_array = np.fft.fft2(bw_array)
+        # Phases and Intensity of fourier transformed image 
+        phases, intensity = get_phase_and_intensity(fft_array)
+        # inverse transform of intensities only
+        intensity_inverse_array = np.abs(np.fft.ifft2(np.sqrt(intensity.real)))
+        autocorrelation = np.abs(np.fft.ifft2(intensity.real))
+        # inverse transform of phases only 
+        phases_inverse_array = np.fft.ifft2(np.exp(1.j*phases))
+        # inverse transform of complete data 
+        inverse_array = np.fft.ifft2(fft_array)
+        nr = len(bw_array)//2
+        phases = np.roll(np.roll(phases,nr,axis =0),nr,axis = 1)
+        intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
+        autocorrelation = np.roll(np.roll(autocorrelation,nr,axis =0),nr,axis = 1)
+        intensity_inverse_array = np.roll(np.roll(intensity_inverse_array,nr,axis =0),nr,axis = 1)
+        save_images(phases,intensity,inverse_array,intensity_inverse_array,phases_inverse_array,autocorrelation)    
     
 
 
@@ -281,20 +296,22 @@ if __name__ == '__main__':
     '''
     print('----- start processing ------\n')
     base_path = Path(__file__).parent
-    image_path =  (base_path / './snail.png').resolve()
-    mask_path = (base_path / './snail_mask.png').resolve()
+
+    #image_path =  (base_path / './disk_intensity_small.png').resolve()
+    image_path =  (base_path / './disk_intensity_sim.tiff').resolve()
+    #image_path =  (base_path / './disk_small.png').resolve()
+    mask_path = (base_path / './disk_small_mask.png').resolve()
     locals().update(define_file_paths(image_path,mask_path))
     image_path =  image_path.as_posix()
     mask_path = mask_path.as_posix()
-
-
-
     #### Start Computations ####
     calc_fft_images = True
-    do_phasing = True
+    input_is_intensity = True
+    do_phasing = False
+    
     if calc_fft_images:
         print('Calculating Fourier Transform Images')
-        fft_example()
+        fft_example(input_is_intensity)
 
     if do_phasing:
         print('Start Phase retrieval:')
@@ -303,27 +320,27 @@ if __name__ == '__main__':
         # hio_parameter
         # Regulates negative feedback strength in HIO iterations.
         # Sensible values are between 0 and 1 commonly 0.5 is used.
-        hio_parameter = 0.5
+        hio_parameter = 1 #1.0
 
         # Parameters for the shrink wrap routine
         
         # sigma
         # Defines the standard deviation of the gaussian burring filter.
         # A sigma value of 1 defines the burred desnity as convolution of the input density with a gaussian distribution that has a standard deviation of 1 pixel.
-        sigma = 1
+        sigma = 2
         
         # threshold
         # Regulates the area which is considered as new function support.
         # Values are between 0 and 1.
         # A value of e.g. 0.15 indicates that the new support area is defined by all pixels of the blurred density that have values higher or equal to 15% of the maximal blurred density value. 
-        threshold = 0.15
+        threshold = 0.1
 
         # Phasing loop parameters
         
         # Number of overall phasing loop iterations.
         loop_iterations = 4
         # Number of Error Reduction (ER) steps in each loop iteration.
-        ER_iterations = 5
+        ER_iterations = 20
         # Number if Hybrid Input-Output steps in each loop iteration.
         HIO_iterations = 145
         # Number of final Error Reduction (ER) steps after all loop iterations are finished.
@@ -331,26 +348,31 @@ if __name__ == '__main__':
         
         loop_parameters = [loop_iterations,ER_iterations,HIO_iterations,ER_refinement_iterations]
 
-        max_RAM = 2 # In Gigabyte
+        max_RAM = 10 # In Gigabyte
         
-        
-        density = CV_Plugin.load(image_path,as_grayscale=True)
-        x_len,y_len = density.shape
-        initial_mask = CV_Plugin.load(mask_path,as_grayscale=True)
-        initial_mask = (initial_mask!=0)
-        CV_Plugin.save_complex(initial_mask_path,initial_mask.astype(float))
-        
-        intensity=density_to_fft_intensity(density)
-    
-        ft_density = np.fft.fft2(density)
-        #phases,_intensity = get_phase_and_intensity(ft_density)
-        #save_images(phases,intensity,np.fft.ifft2(ft_density),np.fft.ifft2(intensity),np.fft.ifft2(np.exp(1.j*phases)))
-        
+
+        if input_is_intensity:
+            intensity = load(image_path,as_grayscale=True)
+            nr = len(intensity)//2
+            intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
+            
+            x_len,y_len = intensity.shape
+            initial_mask = load(mask_path,as_grayscale=True)
+            initial_mask = (initial_mask!=0)
+            save_complex(initial_mask_path,initial_mask.astype(float))        
+        else:
+            density = CV_load(image_path,as_grayscale=True)
+            x_len,y_len = density.shape
+            initial_mask = load(mask_path,as_grayscale=True)
+            initial_mask = (initial_mask!=0)
+            save_complex(initial_mask_path,initial_mask.astype(float))        
+            intensity=density_to_fft_intensity(density)    
+                    
         phasing = assemble_phasing(initial_mask,intensity.astype(complex),hio_parameter,threshold,sigma,loop_parameters,max_RAM=max_RAM)
     
-        initial_density = (1+0.1*np.random.rand(*density.shape))
+        initial_density = (1+0.1*np.random.rand(*intensity.shape))
         initial_density[~initial_mask]=0
-        CV_Plugin.save_complex(initial_density_path,initial_density)
+        save_complex(initial_density_path,initial_density)
     
         reconstruction,final_mask,history,errors = phasing(initial_density)
 
@@ -358,9 +380,13 @@ if __name__ == '__main__':
         reconstruction = reconstruction.real
         non_zero= reconstruction.real<0
         reconstruction[non_zero] = np.log(reconstruction[non_zero])
+
+        nr = len(reconstruction)//2
+        intensity = np.roll(np.roll(np.abs(np.fft.fft2(reconstruction))**2,nr,axis =0),nr,axis = 1)
         
-        CV_Plugin.save_complex(reconstruction_path,reconstruction,saturation=0)
-        CV_Plugin.save_complex(reconstructed_mask_path,final_mask.astype(float),saturation=0)
+        save_complex(reconstruction_path,reconstruction,saturation=0)
+        save_complex(reconstructed_intensity_path,intensity,saturation=0,log_scale=True)
+        save_complex(reconstructed_mask_path,final_mask.astype(float),saturation=0)
         #CV_Plugin.save_video_complex(reconstruction_video_path,history,saturation=0,log_scale=False)
         CV_Plugin.save_video(reconstruction_video_path_color,history,log_scale=False,colormap='jet')
         print('Done!')

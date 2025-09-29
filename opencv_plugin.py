@@ -1,6 +1,58 @@
 import cv2 as cv
 import numpy as np
 
+def hsl2bgr(h,s,l):
+    # intermediate values (Wikipedia)
+    Hp = h / 60.0                             # H'
+    C = (1.0 - np.abs(2.0 * l - 1.0)) * s     # chroma
+    X = C * (1.0 - np.abs(np.mod(Hp, 2.0) - 1.0))
+    
+    # piecewise assignment for (R1, G1, B1)
+    conds = [
+        (0.0 <= Hp) & (Hp < 1.0),
+        (1.0 <= Hp) & (Hp < 2.0),
+        (2.0 <= Hp) & (Hp < 3.0),
+        (3.0 <= Hp) & (Hp < 4.0),
+        (4.0 <= Hp) & (Hp < 5.0),
+        (5.0 <= Hp) & (Hp < 6.0),
+    ]
+    
+    R1_choices = [C, X, 0.0, 0.0, X, C]
+    G1_choices = [X, C, C, X, 0.0, 0.0]
+    B1_choices = [0.0, 0.0, X, C, C, X]
+    
+    R1 = np.select(conds, R1_choices, default=0.0)
+    G1 = np.select(conds, G1_choices, default=0.0)
+    B1 = np.select(conds, B1_choices, default=0.0)
+    
+    # match lightness
+    m = l - C / 2.0
+    R = R1 + m
+    G = G1 + m
+    B = B1 + m
+    
+    bgr = np.stack([B, G, R], axis=-1)
+    return bgr
+
+
+def assemble_hsl_values(phases,intensity=False,log_scale=False,saturation=1):
+    hue = phases%(2*np.pi)
+    if isinstance(intensity,np.ndarray):
+        value = np.sqrt(intensity)
+        if log_scale:            
+            value[value!=0] = np.log10(value[value!=0])
+            vmin = value.min()
+            value = (value-vmin)/(value.max()-vmin)    
+        else:        
+            value = (value/value.max())    
+    else:        
+        value = np.full_like(hue,intensity)
+    lightness = value
+    saturation = np.full_like(hue,saturation)
+    hsl_array=np.stack((hue/(2*np.pi)*360.0, saturation,lightness),axis=-1)
+    #hls_array=np.stack((hue,lightness, saturation),axis=-1)
+    return hsl_array
+
 def assemble_hls_values(phases,intensity=False,log_scale=False,saturation=1):
     hue = phases%(2*np.pi)
     if isinstance(intensity,np.ndarray):
@@ -158,20 +210,36 @@ class CV_Plugin:
     
     @classmethod
     def save(cls,path,image,colors_type = 'bw'):
-        path=path[:-3]+'.png'
-        cv.imwrite(path, image)
+        
+        #path=path.rsplit[:-3]+'.png'
+        compression_params = [cv.IMWRITE_TIFF_COMPRESSION, 1] 
+        cv.imwrite(path, image,compression_params)
         cv.waitKey(0)
 
     @classmethod
     def save_hls(cls,path,hue,intensity=False,log_scale=False,saturation=1):
         hls_array = assemble_hls_values(hue,intensity=intensity,log_scale=log_scale,saturation=saturation)
-        bgr_array = cv.cvtColor(hls_array,cv.COLOR_HLS2BGR)
+        bgr_array = cv.cvtColor(hls_array,cv.COLOR_HLS2BGR_FULL)
         #bgr_array = (hls_to_bgr(hls_array)*255).astype(np.uint8)
         cls.save(path,bgr_array)
+
+    @classmethod
+    def save_hsl(cls,path,hue,intensity=False,log_scale=False,saturation=1):
+        print(hue.dtype)
+        hsl_array = assemble_hsl_values(hue,intensity=intensity,log_scale=log_scale,saturation=saturation)
+        print(hsl_array.dtype)
+        bgr_array = hsl2bgr(hsl_array[...,0],hsl_array[...,1],hsl_array[...,2])
+        print(hsl_array.dtype)
+        bgr_array = bgr_array.astype(np.float32)
+        print(bgr_array.shape,bgr_array.dtype)
+        #bgr_array = (hls_to_bgr(hls_array)*255).astype(np.uint8)
+        cls.save(path,bgr_array.astype(np.float32))
+        
     @classmethod
     def save_complex(cls,path,image,log_scale=False,saturation=1):
         phases,intensity= get_phase_and_intensity(image)
-        cls.save_hls(path,phases,intensity = intensity,log_scale = log_scale,saturation=saturation)
+        cls.save_hsl(path,phases,intensity = intensity,log_scale = log_scale,saturation=saturation)
+        print(path)
     @classmethod
     def load(cls,path,as_grayscale=False):
         print(f'Loading Image from: {path}')
