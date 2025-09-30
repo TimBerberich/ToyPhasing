@@ -254,15 +254,13 @@ def density_to_fft_intensity(density):
 def fft_example(input_is_intensity=False):
     if input_is_intensity:
         intensity = (load(image_path,as_grayscale=True))
-        intensity/=intensity.max()
-        print(intensity.dtype,intensity.max())
         nr = len(intensity)//2
         intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
         autocorrelation = np.abs(np.fft.ifft2(intensity.real))
 
         intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
         autocorrelation = np.roll(np.roll(autocorrelation,nr,axis =0),nr,axis = 1)
-        save_complex(output_path_intensity_image,intensity,saturation=0,log_scale=False)
+        save_complex(output_path_intensity_image,intensity,saturation=0,log_scale=True)
         save_complex(output_path_autocorrelation_image,autocorrelation,saturation=0,log_scale=False)
     else:
         # load image  | Lade Bild datei
@@ -298,6 +296,7 @@ if __name__ == '__main__':
     base_path = Path(__file__).parent
 
     #image_path =  (base_path / './disk_intensity_small.png').resolve()
+    #image_path =  (base_path / './disk_intensity_small2.tiff').resolve()
     image_path =  (base_path / './disk_intensity_sim.tiff').resolve()
     #image_path =  (base_path / './disk_small.png').resolve()
     mask_path = (base_path / './disk_small_mask.png').resolve()
@@ -307,7 +306,7 @@ if __name__ == '__main__':
     #### Start Computations ####
     calc_fft_images = True
     input_is_intensity = True
-    do_phasing = False
+    do_phasing = True
     
     if calc_fft_images:
         print('Calculating Fourier Transform Images')
@@ -338,7 +337,7 @@ if __name__ == '__main__':
         # Phasing loop parameters
         
         # Number of overall phasing loop iterations.
-        loop_iterations = 4
+        loop_iterations = 2
         # Number of Error Reduction (ER) steps in each loop iteration.
         ER_iterations = 20
         # Number if Hybrid Input-Output steps in each loop iteration.

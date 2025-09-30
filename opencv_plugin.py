@@ -330,7 +330,7 @@ class CV_Plugin:
         fourcc = cv.VideoWriter_fourcc(*'mp4v')
         image_size=cls.create_image(images[0],log_scale=log_scale,colormap=colormap).shape[:2]
         #print(image_size)
-        video = cv.VideoWriter(path, fourcc, 10, image_size[::-1])
+        video = cv.VideoWriter(path, fourcc, 60, image_size[::-1])
         for im in images:
             bgr_img = cls.create_image(im,log_scale=log_scale,colormap=colormap)
             #print(bgr_img.shape)
