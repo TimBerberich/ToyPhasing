@@ -74,7 +74,10 @@ def load(path,as_grayscale=False):
             scale = 4294967295
 
         image = image.astype(float)
-        image = np.sum(image,axis=-1)/(3*scale)
+        if image.ndim >2:
+            image = np.sum(image,axis=-1)/(3*scale)
+        else:
+            image/=scale
     return image
 def save_hsl(path,hue,intensity=False,log_scale=False,saturation=1):
     hsl_array = assemble_hsl_values(hue,intensity=intensity,log_scale=log_scale,saturation=saturation)

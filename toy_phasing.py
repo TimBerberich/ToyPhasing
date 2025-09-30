@@ -211,6 +211,7 @@ def define_file_paths(image_path,mask_path):
     
     output_path_fft_image = (fft_images / f'fft.tiff').resolve().as_posix()
     output_path_intensity_image = (fft_images / f'fft_intensity.tiff').resolve().as_posix()
+    output_path_intensity_image_nolog = (fft_images / f'fft_intensity_no_logscale.tiff').resolve().as_posix()
     output_path_phase_image = (fft_images / f'fft_phase.tiff').resolve().as_posix()
     output_path_intensity_inverse_image = (fft_images / f'sqrt_of_intensity_inverse.tiff').resolve().as_posix()
     output_path_autocorrelation_image = (fft_images /  f'autocorrelation.tiff').resolve().as_posix()
@@ -233,6 +234,7 @@ def save_images(phases,intensity,inverse_array,intensity_inverse_array,phases_in
     # Save Fouriertransform image 
     save_complex(output_path_fft_image,fft_array,log_scale=True)
     save_complex(output_path_intensity_image,intensity,saturation=0,log_scale=True)
+    save_complex(output_path_intensity_image_nolog,intensity,saturation=0,log_scale=False)
     save_hsl(output_path_phase_image,phases,intensity=0.5,saturation=1)
     
     
@@ -261,10 +263,12 @@ def fft_example(input_is_intensity=False):
         intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
         autocorrelation = np.roll(np.roll(autocorrelation,nr,axis =0),nr,axis = 1)
         save_complex(output_path_intensity_image,intensity,saturation=0,log_scale=True)
+        save_complex(output_path_intensity_image_nolog,intensity,saturation=0,log_scale=False)
         save_complex(output_path_autocorrelation_image,autocorrelation,saturation=0,log_scale=False)
     else:
         # load image  | Lade Bild datei
         bw_array = load(image_path,as_grayscale=True)
+        print(bw_array.shape,bw_array.dtype)
         # Fouriertransform Image 
         fft_array = np.fft.fft2(bw_array)
         # Phases and Intensity of fourier transformed image 
@@ -295,11 +299,10 @@ if __name__ == '__main__':
     print('----- start processing ------\n')
     base_path = Path(__file__).parent
 
-    #image_path =  (base_path / './disk_intensity_small.png').resolve()
-    #image_path =  (base_path / './disk_intensity_small2.tiff').resolve()
+
     image_path =  (base_path / './disk_intensity_sim.tiff').resolve()
-    #image_path =  (base_path / './disk_small.png').resolve()
-    mask_path = (base_path / './disk_small_mask.png').resolve()
+    #image_path =  (base_path / './square_small_intensity.tiff').resolve()
+    mask_path = (base_path / './square_small_mask.png').resolve()
     locals().update(define_file_paths(image_path,mask_path))
     image_path =  image_path.as_posix()
     mask_path = mask_path.as_posix()
