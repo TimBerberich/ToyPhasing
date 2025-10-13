@@ -60,37 +60,54 @@ from images import load,save_complex,save_hsl
 # Marchesini et al. (2003), ‘X-ray image reconstruction from a diffraction pattern alone’, Phys. Rev. B 68(14).
 
 def hio_projection(density,support_mask,initial_density,hio_parameter):
-    density = np.where(support_mask,density,initial_density-hio_parameter*density) 
+    proj = density.copy()
+    mask = support_mask * density>0
+    proj[~mask]=0
+    diff = density-proj
+    
+    #print(f'pdensity max = {density.max()}, ndiff max = {diff.max()} ')
+    negative_feedback = initial_density-hio_parameter*diff
+    density = np.where(mask,density,negative_feedback) 
     return density
 
 def er_projection(density,support_mask):
     density[~support_mask]=0
     return density
 
-def generate_ER_loop(intensity):
+def generate_ER_loop(intensity,intensity_mask=True):
     empty_density = np.zeros_like(intensity)
     def er_loop(density,mask):
-        ft_density = np.fft.fft2(density)
+        ft_density = np.fft.fft2(density,norm ='ortho')
         non_zero_mask = (ft_density!=0)
-        projected_ft_density = empty_density.copy()
-        projected_ft_density[non_zero_mask] = ft_density[non_zero_mask]/np.abs(ft_density[non_zero_mask])*np.sqrt(intensity[non_zero_mask])
+        projected_ft_density = ft_density.copy()
+        imask = non_zero_mask & intensity_mask
+        projected_ft_density[imask] = ft_density[imask]/np.abs(ft_density[imask])*np.sqrt(intensity[imask])
+        #imask2 = ~non_zero_mask & intensity_mask
+        #projected_ft_density[imask2] = np.sqrt(intensity[imask2])
+        
         #projected_ft_density[non_zero_mask] = ft_density[non_zero_mask]
-        new_density = np.fft.ifft2(projected_ft_density)
+        new_density = np.fft.ifft2(projected_ft_density,norm ='ortho')
         projected_density = er_projection(new_density,mask)
         projected_density[projected_density<0]=0
+        #projected_density=projected_density.real
         return projected_density
     return er_loop
 
-def generate_HIO_loop(intensity,hio_parameter):
+def generate_HIO_loop(intensity,hio_parameter,intensity_mask=True):
     empty_density = np.zeros_like(intensity)
     def HIO_loop(density,mask):
-        ft_density = np.fft.fft2(density)
+        ft_density = np.fft.fft2(density,norm ='ortho')
         non_zero_mask = (ft_density!=0)
-        projected_ft_density = empty_density.copy()
-        projected_ft_density[non_zero_mask] = ft_density[non_zero_mask]/np.abs(ft_density[non_zero_mask])*np.sqrt(intensity[non_zero_mask])
-        new_density = np.fft.ifft2(projected_ft_density)
+        projected_ft_density = ft_density.copy()
+        imask = non_zero_mask & intensity_mask
+        projected_ft_density[imask] = ft_density[imask]/np.abs(ft_density[imask])*np.sqrt(intensity[imask])
+        #imask2 = ~non_zero_mask & intensity_mask
+        #projected_ft_density[imask2] = np.sqrt(intensity[imask2])
+        
+        new_density = np.fft.ifft2(projected_ft_density,norm ='ortho')
         projected_density = hio_projection(new_density,mask,density,hio_parameter)
-        projected_density[projected_density<0]=0
+        #projected_density[projected_density<0]=0
+        projected_density=projected_density.real
         return projected_density
     return HIO_loop
 
@@ -109,8 +126,8 @@ def generate_shrink_wrap(threshold,sigma,data_shape):
         ft_density = np.fft.fft2(density)
         ft_density *= ft_gaussian
         blurry_density = np.fft.ifft2(ft_density)
-        max_density_value = blurry_density.max()
-        mask = (blurry_density >= max_density_value*threshold)
+        max_density_value = blurry_density.real.max()
+        mask = (np.abs(blurry_density) >= max_density_value*threshold)
         return mask
     return SW
 
@@ -121,6 +138,18 @@ def density_error(density,new_density):
     b=new_density.real
     error = np.sqrt(np.sum((a-b)**2))/np.sqrt(np.sum(a**2))
     return error
+
+def intensity_error(density,intensity,intensity_mask=True):
+    '''Estimates the reconstruciton error by simply summing the density outside of the support region
+       relative to the total summed density.'''
+    I = intensity.real.copy()
+    I[I==0]=1e-12
+    a=density.real.copy()
+    a[a==0]=1e-12
+    
+    error = np.sqrt(np.sum((a-I)[intensity_mask]**2))/np.sqrt(np.sum(I[intensity_mask]**2))
+    return error
+
 
 def get_history_parameters(intensity,loop_parameters,max_RAM = 1):
     N_steps = loop_parameters[0]*(loop_parameters[1]+loop_parameters[2])+loop_parameters[3]
@@ -137,17 +166,17 @@ def get_history_parameters(intensity,loop_parameters,max_RAM = 1):
     #print(f'stride {history_stride} size = {history_length}, max ram bytes // history size {max_history_size//max_RAM_Bytes}')
     return history_stride,history_length
 
-def assemble_phasing(initial_mask,intensity,hio_parameter,sw_threshold,sw_sigma,loop_parameters,max_RAM=1):
+def assemble_phasing(initial_mask,intensity,hio_parameter,sw_threshold,sw_sigma,loop_parameters,max_RAM=1,intensity_mask=True):
     loop_iterations = loop_parameters[0]
     ER_iterations = loop_parameters[1]
     HIO_iterations = loop_parameters[2]
     #hio_parameter = 0.5
     ER_refinement_iterations = loop_parameters[3]
     
-    ER_loop = generate_ER_loop(intensity)
-    HIO_loop = generate_HIO_loop(intensity,hio_parameter)
+    ER_loop = generate_ER_loop(intensity,intensity_mask=intensity_mask)
+    HIO_loop = generate_HIO_loop(intensity,hio_parameter,intensity_mask=intensity_mask)
     SW = generate_shrink_wrap(sw_threshold,sw_sigma,intensity.shape)
-    mask = initial_mask
+    mask = initial_mask.copy()
 
     history_stride,history_length = get_history_parameters(intensity,loop_parameters,max_RAM=max_RAM)
     history = np.zeros((history_length,)+(intensity.shape))
@@ -157,41 +186,53 @@ def assemble_phasing(initial_mask,intensity,hio_parameter,sw_threshold,sw_sigma,
         mask = initial_mask
         step_counter=0
         errors=[]
+        i_errors=[]
         for i in range(loop_iterations):
             for hio_i in range(HIO_iterations):
                 new_density = HIO_loop(density,mask)
                 error = density_error(density,new_density)
+                i_error = intensity_error(np.abs(np.fft.fft2(new_density,norm ='ortho'))**2,intensity,intensity_mask)
                 density = new_density
                 
                 if step_counter%history_stride==0:
-                    history[step_counter//history_stride]=density.real
+                    tmp = density.real.copy()
+                    tmp[tmp<0]=0
+                    history[step_counter//history_stride]=tmp
                 errors.append(error)
+                i_errors.append(i_error)
                 step_counter+=1
             if HIO_iterations>0:
-                print('Loop {}: HIO error = {}'.format(i,error))
+                print('Loop {}: HIO error = {}, Intensity error ={}'.format(i,error,i_error))
             mask = SW(density.real)#*initial_mask
             for er_i in range(ER_iterations):
                 new_density = ER_loop(density,mask)
                 error = density_error(density,new_density)
+                i_error = intensity_error(np.abs(np.fft.fft2(new_density,norm ='ortho'))**2,intensity,intensity_mask)
                 density = new_density
                 
                 if step_counter%history_stride==0:
-                    history[step_counter//history_stride]=density.real
+                    tmp = density.real.copy()
+                    tmp[tmp<0]=0
+                    history[step_counter//history_stride]=tmp
+                    
                 errors.append(error)
+                i_errors.append(i_error)
                 step_counter+=1
             if ER_iterations>0:
-                print('Loop {}: ER error = {}'.format(i,error))
+                print('Loop {}: ER error = {} Intensity error ={}'.format(i,error,i_error))
             
         for er_i in range(ER_refinement_iterations):
             new_density = ER_loop(density,mask)
             error = density_error(density,new_density)
+            i_error = intensity_error(np.abs(np.fft.fft2(new_density,norm ='ortho'))**2,intensity,intensity_mask)
             density = new_density
             
             if step_counter%history_stride==0:
                 history[step_counter//history_stride]=density.real
             errors.append(error)
+            i_errors.append(i_error)
             step_counter+=1
-        print('Loop {}: Final error = {}'.format(i,error))
+        print('Loop {}: Final error = {} Intensity error ={}'.format(i,error,i_error))
         return density,mask,history,errors
 
     return phasing_loop
@@ -211,6 +252,7 @@ def define_file_paths(image_path,mask_path):
     
     output_path_fft_image = (fft_images / f'fft.tiff').resolve().as_posix()
     output_path_intensity_image = (fft_images / f'fft_intensity.tiff').resolve().as_posix()
+    output_path_intensity_image_mask = (fft_images / f'fft_intensity_mask.tiff').resolve().as_posix()
     output_path_intensity_image_nolog = (fft_images / f'fft_intensity_no_logscale.tiff').resolve().as_posix()
     output_path_phase_image = (fft_images / f'fft_phase.tiff').resolve().as_posix()
     output_path_intensity_inverse_image = (fft_images / f'sqrt_of_intensity_inverse.tiff').resolve().as_posix()
@@ -253,21 +295,25 @@ def density_to_fft_intensity(density):
     intensity = ft_density*ft_density.conj()
     return intensity
 
-def fft_example(input_is_intensity=False):
+def fft_example(input_is_intensity=False,bit_depth=None):
     if input_is_intensity:
-        intensity = (load(image_path,as_grayscale=True))
-        nr = len(intensity)//2
-        intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
+        intensity = load(image_path,as_grayscale=True,bit_depth=bit_depth)
+        print(f'yay {intensity.dtype} {intensity.shape} {intensity.max()} {intensity.min()}')
+        intensity_mask = load(image_mask_path,as_grayscale=True,bit_depth=bit_depth).astype(bool).astype(float)
+        
+        nx,ny = np.array(intensity.shape)//2
+        intensity = np.roll(np.roll(intensity,nx,axis =0),ny,axis = 1)
         autocorrelation = np.abs(np.fft.ifft2(intensity.real))
 
-        intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
-        autocorrelation = np.roll(np.roll(autocorrelation,nr,axis =0),nr,axis = 1)
+        intensity = np.roll(np.roll(intensity,nx,axis =0),ny,axis = 1)
+        autocorrelation = np.roll(np.roll(autocorrelation,nx,axis =0),ny,axis = 1)
         save_complex(output_path_intensity_image,intensity,saturation=0,log_scale=True)
-        save_complex(output_path_intensity_image_nolog,intensity,saturation=0,log_scale=False)
+        save_complex(output_path_intensity_image_mask,intensity_mask,saturation=0,log_scale=False)
+        save_complex(output_path_intensity_image_nolog,np.abs(intensity),saturation=0,log_scale=False)
         save_complex(output_path_autocorrelation_image,autocorrelation,saturation=0,log_scale=False)
     else:
         # load image  | Lade Bild datei
-        bw_array = load(image_path,as_grayscale=True)
+        bw_array = load(image_path,as_grayscale=True,bit_depth=bit_depth)
         print(bw_array.shape,bw_array.dtype)
         # Fouriertransform Image 
         fft_array = np.fft.fft2(bw_array)
@@ -280,11 +326,12 @@ def fft_example(input_is_intensity=False):
         phases_inverse_array = np.fft.ifft2(np.exp(1.j*phases))
         # inverse transform of complete data 
         inverse_array = np.fft.ifft2(fft_array)
-        nr = len(bw_array)//2
-        phases = np.roll(np.roll(phases,nr,axis =0),nr,axis = 1)
-        intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
-        autocorrelation = np.roll(np.roll(autocorrelation,nr,axis =0),nr,axis = 1)
-        intensity_inverse_array = np.roll(np.roll(intensity_inverse_array,nr,axis =0),nr,axis = 1)
+
+        nx,ny = np.array(bw_array.shape)//2
+        phases = np.roll(np.roll(phases,nx,axis =0),ny,axis = 1)
+        intensity = np.roll(np.roll(intensity,nx,axis =0),ny,axis = 1)
+        autocorrelation = np.roll(np.roll(autocorrelation,nx,axis =0),ny,axis = 1)
+        intensity_inverse_array = np.roll(np.roll(intensity_inverse_array,nx,axis =0),ny,axis = 1)
         save_images(phases,intensity,inverse_array,intensity_inverse_array,phases_inverse_array,autocorrelation)    
     
 
@@ -300,20 +347,29 @@ if __name__ == '__main__':
     base_path = Path(__file__).parent
 
 
-    image_path =  (base_path / './disk_intensity_sim.tiff').resolve()
+    #image_path =  (base_path / './square_small.png').resolve()
+    #image_path =  (base_path / './slit_sim_intensity_bad.tiff').resolve()
+    #image_path =  (base_path / './5_hole_sim_intensity.tiff').resolve()
+    image_path =  (base_path / './3h_1k_sym.tiff').resolve()
+    image_mask_path =  (base_path / './slit_sim_intensity_3_mask.tiff').resolve()
     #image_path =  (base_path / './square_small_intensity.tiff').resolve()
-    mask_path = (base_path / './square_small_mask.png').resolve()
+    #mask_path = (base_path / './slit_exp_mask2.tiff').resolve()
+    mask_path = (base_path / './3h_1k_mask_sym.tiff').resolve()
+    #mask_path = (base_path / './square_small_mask.png').resolve()
     locals().update(define_file_paths(image_path,mask_path))
     image_path =  image_path.as_posix()
     mask_path = mask_path.as_posix()
+    
     #### Start Computations ####
     calc_fft_images = True
-    input_is_intensity = True
+    input_is_intensity =True
+    use_intensity_mask = False
     do_phasing = True
+    bit_depth = None
     
     if calc_fft_images:
         print('Calculating Fourier Transform Images')
-        fft_example(input_is_intensity)
+        fft_example(input_is_intensity,bit_depth)
 
     if do_phasing:
         print('Start Phase retrieval:')
@@ -322,55 +378,62 @@ if __name__ == '__main__':
         # hio_parameter
         # Regulates negative feedback strength in HIO iterations.
         # Sensible values are between 0 and 1 commonly 0.5 is used.
-        hio_parameter = 1 #1.0
+        hio_parameter = 0.1 #1.0
 
         # Parameters for the shrink wrap routine
         
         # sigma
         # Defines the standard deviation of the gaussian burring filter.
         # A sigma value of 1 defines the burred desnity as convolution of the input density with a gaussian distribution that has a standard deviation of 1 pixel.
-        sigma = 2
+        sigma = 5
         
         # threshold
         # Regulates the area which is considered as new function support.
         # Values are between 0 and 1.
         # A value of e.g. 0.15 indicates that the new support area is defined by all pixels of the blurred density that have values higher or equal to 15% of the maximal blurred density value. 
-        threshold = 0.1
+        threshold = 0.14
 
         # Phasing loop parameters
         
         # Number of overall phasing loop iterations.
-        loop_iterations = 2
+        loop_iterations = 3
         # Number of Error Reduction (ER) steps in each loop iteration.
-        ER_iterations = 20
+        ER_iterations = 120 #20
         # Number if Hybrid Input-Output steps in each loop iteration.
-        HIO_iterations = 145
+        HIO_iterations = 45#145 #145
         # Number of final Error Reduction (ER) steps after all loop iterations are finished.
         ER_refinement_iterations = 200
         
         loop_parameters = [loop_iterations,ER_iterations,HIO_iterations,ER_refinement_iterations]
 
-        max_RAM = 10 # In Gigabyte
+        max_RAM = 4 # In Gigabyte
         
 
         if input_is_intensity:
-            intensity = load(image_path,as_grayscale=True)
-            nr = len(intensity)//2
-            intensity = np.roll(np.roll(intensity,nr,axis =0),nr,axis = 1)
-            
+            intensity = load(image_path,as_grayscale=True,bit_depth=bit_depth)
+            if use_intensity_mask:
+                intensity_mask = load(image_mask_path,as_grayscale=True,bit_depth=bit_depth).astype(bool)
+            else:
+                intensity_mask = np.ones_like(intensity,dtype=bool)
+                
+            nx,ny = np.array(intensity.shape)//2
+            intensity = np.roll(np.roll(intensity,nx,axis =0),ny,axis = 1)
+            intensity_mask = np.roll(np.roll(intensity_mask,nx,axis =0),ny,axis = 1)
+            print(intensity.shape)
             x_len,y_len = intensity.shape
             initial_mask = load(mask_path,as_grayscale=True)
             initial_mask = (initial_mask!=0)
             save_complex(initial_mask_path,initial_mask.astype(float))        
         else:
-            density = CV_load(image_path,as_grayscale=True)
+            density = load(image_path,as_grayscale=True,bit_depth=bit_depth)
             x_len,y_len = density.shape
             initial_mask = load(mask_path,as_grayscale=True)
             initial_mask = (initial_mask!=0)
             save_complex(initial_mask_path,initial_mask.astype(float))        
-            intensity=density_to_fft_intensity(density)    
+            intensity=density_to_fft_intensity(density)
+            intensity_mask = True
                     
-        phasing = assemble_phasing(initial_mask,intensity.astype(complex),hio_parameter,threshold,sigma,loop_parameters,max_RAM=max_RAM)
+        phasing = assemble_phasing(initial_mask,intensity.astype(complex),hio_parameter,threshold,sigma,loop_parameters,max_RAM=max_RAM,intensity_mask = intensity_mask)
     
         initial_density = (1+0.1*np.random.rand(*intensity.shape))
         initial_density[~initial_mask]=0
@@ -381,10 +444,11 @@ if __name__ == '__main__':
         print('Saving phasing results.')
         reconstruction = reconstruction.real
         non_zero= reconstruction.real<0
-        reconstruction[non_zero] = np.log(reconstruction[non_zero])
+        reconstruction/=reconstruction.max()
+        #reconstruction[non_zero] = np.log(reconstruction[non_zero])
 
-        nr = len(reconstruction)//2
-        intensity = np.roll(np.roll(np.abs(np.fft.fft2(reconstruction))**2,nr,axis =0),nr,axis = 1)
+        nx,ny = np.array(intensity.shape)//2
+        intensity = np.roll(np.roll(np.abs(np.fft.fft2(reconstruction))**2,nx,axis =0),ny,axis = 1)
         
         save_complex(reconstruction_path,reconstruction,saturation=0)
         save_complex(reconstructed_intensity_path,intensity,saturation=0,log_scale=True)

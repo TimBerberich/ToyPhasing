@@ -299,10 +299,10 @@ class CV_Plugin:
         data= cv.applyColorMap(data, cls.colormaps.get(colormap,cv.COLORMAP_VIRIDIS))
 
         if True:
-            h_black = int(data.shape[0]*0.05)
-            h_color_bar = int(data.shape[0]*0.05)
-            cscale=np.zeros((h_black+h_color_bar,data.shape[0]),dtype=np.uint8)
-            cscale[h_black:]=np.arange(data.shape[0])*255/data.shape[0]
+            h_black = int(data.shape[1]*0.05)
+            h_color_bar = int(data.shape[1]*0.05)
+            cscale=np.zeros((h_black+h_color_bar,data.shape[1]),dtype=np.uint8)
+            cscale[h_black:]=np.arange(data.shape[1])*255/data.shape[1]
             cscale = cv.applyColorMap(cscale, cls.colormaps.get(colormap,cv.COLORMAP_VIRIDIS))
             cscale[:h_black]=0
 
@@ -315,7 +315,7 @@ class CV_Plugin:
             WHITE = (255,255,255)
             font = cv.FONT_HERSHEY_SIMPLEX
             scale = 0.03 # this value can be from 0 to 1 (0,1] to change the size of the text relative to the image
-            n_pixels=data.shape[0]
+            n_pixels=data.shape[1]
             font_size = n_pixels/(25/scale)
             font_color = WHITE
             font_thickness = int(font_size*2)

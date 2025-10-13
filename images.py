@@ -37,11 +37,16 @@ def assemble_hsl_values(phases,intensity=False,log_scale=False,saturation=1):
     hue = phases%(2*np.pi)
     if isinstance(intensity,np.ndarray):
         value = np.sqrt(intensity)
-        if log_scale:            
+        if log_scale:
+            zero_mask = value==0
             value[value!=0] = np.log10(value[value!=0])
             vmin = value.min()
-            value = (value-vmin)/(value.max()-vmin)    
-        else:        
+            vmax = value.max()
+            value = (value-vmin)/(vmax-vmin)
+            #value/=vmax
+            value[zero_mask]=1            
+        else:
+            #print(value.min())
             value = (value/value.max())    
     else:        
         value = np.full_like(hue,intensity)
@@ -62,7 +67,7 @@ def get_phase_and_intensity(complex_array):
 
 def save(path,image):
     skimage.io.imsave(path,image)
-def load(path,as_grayscale=False):
+def load(path,as_grayscale=False,bit_depth=None):
     image = skimage.io.imread(path)
     if as_grayscale:
         scale = 1.0
@@ -75,9 +80,14 @@ def load(path,as_grayscale=False):
 
         image = image.astype(float)
         if image.ndim >2:
-            image = np.sum(image,axis=-1)/(3*scale)
+            image = np.sum(image[...,:3],axis=-1)/(3*scale)
         else:
             image/=scale
+    image[np.isnan(image)]==1e-16
+    if isinstance(bit_depth,int):
+        scale=2**bit_depth-1
+        image*=scale
+        image[:] = (image//1)/scale
     return image
 def save_hsl(path,hue,intensity=False,log_scale=False,saturation=1):
     hsl_array = assemble_hsl_values(hue,intensity=intensity,log_scale=log_scale,saturation=saturation)
