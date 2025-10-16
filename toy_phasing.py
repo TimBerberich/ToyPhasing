@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 from opencv_plugin import CV_Plugin,get_phase_and_intensity
 from images import load,save_complex,save_hsl
+from matplotlib import pyplot as plt
+from matplotlib.colors import LogNorm
 
 
 #  ###################################################
@@ -334,10 +336,75 @@ def fft_example(input_is_intensity=False,bit_depth=None):
         intensity_inverse_array = np.roll(np.roll(intensity_inverse_array,nx,axis =0),ny,axis = 1)
         save_images(phases,intensity,inverse_array,intensity_inverse_array,phases_inverse_array,autocorrelation)    
     
+        
+class  ReconstructionResult():
+    def __init__(self,reconstruction,
+                 final_support,
+                 history,
+                 errors,
+                 initial_density,
+                 initial_support,
+                 initial_intensity):
+        self.reconstruction=reconstruction
+        self.support = final_support
+        self.history = history
+        self.errors = errors
+        self.initial_density = initial_density
+        self.initial_support = initial_support
+        self.initial_intensity = initial_intensity
+    @property
+    def intensity(self):
+        nx,ny = np.array(self.reconstruction.shape)//2
+        I = np.abs(np.fft.fft2(self.reconstruction))**2
+        return np.roll(np.roll(I,ny,axis=1),nx,axis=0)
+    def plot(self):
+        fig,axs = plt.subplots(ncols = 2,nrows=2, figsize=(15,15))
+        axs[0][0].imshow(self.reconstruction.real)
+        axs[1][0].imshow(self.support.real)
+        I = self.intensity
+        Imax = I.max().real
+        axs[0][1].imshow(I,norm=LogNorm(vmin=Imax*1e-8,vmax=Imax))
 
+        init_Imax = self.initial_intensity.real.max()
+        axs[1][1].imshow(self.initial_intensity.real,norm=LogNorm(vmin=init_Imax*1e-8,vmax=init_Imax))
+        return fig
+    def plot_initial_state(self):
+        fig,axs = plt.subplots(ncols = 3, figsize=(15,15))
+        axs[0].imshow(self.initial_density)
+        axs[1].imshow(self.initial_support)
+        I = self.initial_intensity
+        Imax = I.max().real
+        axs[2].imshow(I,norm=LogNorm(vmin=Imax*1e-8,vmax=Imax))
+        return fig
+    def save_video(self,path='reconstruction.mp4'):
+        CV_Plugin.save_video(path,self.history,log_scale=False,colormap='jet')
+        
+def run_phase_retrieval(initial_mask,
+                        intensity,
+                        hio_parameter=1,
+                        sw_threshold=0.09,
+                        sw_sigma=6,
+                        main_loop_iterations=3,
+                        ER_block_iterations=40,
+                        HIO_block_iterations=15,
+                        refinement_loop_iterations=100,
+                        max_RAM=4,
+                        intensity_mask=True):
+    
+    nx,ny = np.array(intensity.shape)//2
+    I = np.roll(np.roll(intensity,nx,axis =0),ny,axis = 1)
+    loop_parameters = [main_loop_iterations,ER_block_iterations,HIO_block_iterations,refinement_loop_iterations]
+    
+    phasing = assemble_phasing(initial_mask,I.astype(complex),hio_parameter,sw_threshold,sw_sigma,loop_parameters,max_RAM=max_RAM,intensity_mask = intensity_mask)
+    initial_density = (1+0.1*np.random.rand(*intensity.shape))
+    initial_density[~initial_mask]=0
 
-
-
+    reconstruction,support,history,errors = phasing(initial_density)
+    out = ReconstructionResult(reconstruction,support,history,errors,initial_density,initial_mask,intensity)
+    return out
+    
+    
+    
 if __name__ == '__main__':
     '''
     specify an input image in the code below and start the script via
@@ -350,11 +417,11 @@ if __name__ == '__main__':
     #image_path =  (base_path / './square_small.png').resolve()
     #image_path =  (base_path / './slit_sim_intensity_bad.tiff').resolve()
     #image_path =  (base_path / './5_hole_sim_intensity.tiff').resolve()
-    image_path =  (base_path / './3h_1k_sym.tiff').resolve()
-    image_mask_path =  (base_path / './slit_sim_intensity_3_mask.tiff').resolve()
+    image_path =  (base_path / './3h_1k.tiff').resolve()
+    image_mask_path =  (base_path / './3h_1k_mask.tiff').resolve()
     #image_path =  (base_path / './square_small_intensity.tiff').resolve()
     #mask_path = (base_path / './slit_exp_mask2.tiff').resolve()
-    mask_path = (base_path / './3h_1k_mask_sym.tiff').resolve()
+    mask_path = (base_path / './3h_1k_mask.tiff').resolve()
     #mask_path = (base_path / './square_small_mask.png').resolve()
     locals().update(define_file_paths(image_path,mask_path))
     image_path =  image_path.as_posix()
@@ -378,37 +445,46 @@ if __name__ == '__main__':
         # hio_parameter
         # Regulates negative feedback strength in HIO iterations.
         # Sensible values are between 0 and 1 commonly 0.5 is used.
-        hio_parameter = 0.1 #1.0
+        hio_parameter = 1 #1.0
 
         # Parameters for the shrink wrap routine
         
         # sigma
         # Defines the standard deviation of the gaussian burring filter.
         # A sigma value of 1 defines the burred desnity as convolution of the input density with a gaussian distribution that has a standard deviation of 1 pixel.
-        sigma = 5
+        #sigma = 4 #3h
+        sigma = 4 #7h
         
         # threshold
         # Regulates the area which is considered as new function support.
         # Values are between 0 and 1.
-        # A value of e.g. 0.15 indicates that the new support area is defined by all pixels of the blurred density that have values higher or equal to 15% of the maximal blurred density value. 
-        threshold = 0.14
+        # A value of e.g. 0.15 indicates that the new support area is defined by all pixels of the blurred density that have values higher or equal to 15% of the maximal blurred density value.
+        threshold = 0.12 #3h
+        #threshold = 0.08 #7h
 
         # Phasing loop parameters
         
         # Number of overall phasing loop iterations.
-        loop_iterations = 3
+        loop_iterations = 3 #3h
+        #loop_iterations = 3 #7h
+        #loop_iterations = 6 #3h
         # Number of Error Reduction (ER) steps in each loop iteration.
-        ER_iterations = 120 #20
+        #ER_iterations = 40 #3h
+        ER_iterations = 200 #7h
+        #ER_iterations = 20 #3h new
         # Number if Hybrid Input-Output steps in each loop iteration.
-        HIO_iterations = 45#145 #145
+        #HIO_iterations = 15 #3h
+        HIO_iterations = 100 #7h
+        #HIO_iterations = 60 #3h new
         # Number of final Error Reduction (ER) steps after all loop iterations are finished.
-        ER_refinement_iterations = 200
+        ER_refinement_iterations = 300 #3h
+        #ER_refinement_iterations = 100 #7h
         
         loop_parameters = [loop_iterations,ER_iterations,HIO_iterations,ER_refinement_iterations]
-
-        max_RAM = 4 # In Gigabyte
         
-
+        max_RAM = 10 # In Gigabyte
+        
+        
         if input_is_intensity:
             intensity = load(image_path,as_grayscale=True,bit_depth=bit_depth)
             if use_intensity_mask:
@@ -432,21 +508,21 @@ if __name__ == '__main__':
             save_complex(initial_mask_path,initial_mask.astype(float))        
             intensity=density_to_fft_intensity(density)
             intensity_mask = True
-                    
+            
         phasing = assemble_phasing(initial_mask,intensity.astype(complex),hio_parameter,threshold,sigma,loop_parameters,max_RAM=max_RAM,intensity_mask = intensity_mask)
-    
+        
         initial_density = (1+0.1*np.random.rand(*intensity.shape))
         initial_density[~initial_mask]=0
         save_complex(initial_density_path,initial_density)
-    
+        
         reconstruction,final_mask,history,errors = phasing(initial_density)
-
+        
         print('Saving phasing results.')
         reconstruction = reconstruction.real
         non_zero= reconstruction.real<0
         reconstruction/=reconstruction.max()
         #reconstruction[non_zero] = np.log(reconstruction[non_zero])
-
+        
         nx,ny = np.array(intensity.shape)//2
         intensity = np.roll(np.roll(np.abs(np.fft.fft2(reconstruction))**2,nx,axis =0),ny,axis = 1)
         
@@ -456,5 +532,5 @@ if __name__ == '__main__':
         #CV_Plugin.save_video_complex(reconstruction_video_path,history,saturation=0,log_scale=False)
         CV_Plugin.save_video(reconstruction_video_path_color,history,log_scale=False,colormap='jet')
         print('Done!')
-
+        
     print('----- Stop processing ------')

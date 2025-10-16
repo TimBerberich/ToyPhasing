@@ -85,9 +85,9 @@ def load(path,as_grayscale=False,bit_depth=None):
             image/=scale
     image[np.isnan(image)]==1e-16
     if isinstance(bit_depth,int):
-        scale=2**bit_depth-1
-        image*=scale
-        image[:] = (image//1)/scale
+        b_scale=2**bit_depth-1
+        image*=b_scale/image.max()
+        image[:] = (image//1)/b_scale
     return image
 def save_hsl(path,hue,intensity=False,log_scale=False,saturation=1):
     hsl_array = assemble_hsl_values(hue,intensity=intensity,log_scale=log_scale,saturation=saturation)
